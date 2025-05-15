@@ -1,0 +1,2 @@
+websockets==15.0.1
+wonderwords==2.2.0
