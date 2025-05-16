@@ -22,7 +22,8 @@ class PlayerSession:
         self.finished = False
 
 class Lobby:
-    def __init__(self):
+    def __init__(self, manager):
+        self.manager = manager
         self.players = {}
         self.text = WordGenerator().get_words()
         self.started = False
@@ -37,8 +38,8 @@ class Lobby:
             'players': list(self.players.keys())
         })
 
-        if len(self.players) == 2 and not self.countdown_started:
-            asyncio.create_task(self.start_countdown())
+        if len(self.players) == 1 and not self.countdown_started:
+            asyncio.create_task(self.start_countdown(id(self)))
 
     async def remove_player(self, player_id):
         if player_id in self.players:
@@ -52,13 +53,14 @@ class Lobby:
             return True
         return False
 
-    async def start_countdown(self):
+    async def start_countdown(self, lobby_id):
         self.countdown_started = True
-        await self.broadcast({
-            'type': 'countdown',
-            'seconds': COUNTDOWN_START
-        })
-        await asyncio.sleep(COUNTDOWN_START)
+        for i in range(COUNTDOWN_START):
+            await self.broadcast({
+                'type': 'countdown',
+                'seconds': COUNTDOWN_START - i
+            })
+            await asyncio.sleep(1)
 
         self.started = True
         self.match_start_time = time.time()
@@ -69,15 +71,15 @@ class Lobby:
             'text': word_list_indexed
         })
 
-        # Avvia timer di timeout partita
-        asyncio.create_task(self.match_timeout_timer())
+        asyncio.create_task(self.match_timeout_timer(lobby_id))
 
-    async def match_timeout_timer(self):
+    async def match_timeout_timer(self, lobby_id):
         await asyncio.sleep(MATCH_TIMEOUT)
         if self.started:
             print(f"[Lobby] Match timeout reached. Ending match.")
             await self.broadcast({'type': 'match_timeout'})
             self.started = False
+            await self.manager.cleanup_lobby(lobby_id)
 
     async def broadcast(self, message):
         if not self.players:
@@ -124,12 +126,17 @@ class LobbyManager:
         for lobby in self.lobbies:
             if not lobby.started and len(lobby.players) < MAX_LOBBY_CAPACITY:
                 return lobby
-        lobby = Lobby()
+        lobby = Lobby(self)
         self.lobbies.append(lobby)
         return lobby
 
     async def cleanup_lobbies(self):
         self.lobbies = [lobby for lobby in self.lobbies if lobby.players]
+
+    async def cleanup_lobby(self, lobby_id):
+        self.lobbies = [lobby for lobby in self.lobbies if id(lobby) != lobby_id]
+
+
 
 manager = LobbyManager()
 
@@ -143,7 +150,7 @@ async def handle_client(websocket):
             try:
                 data = json.loads(message)
             except json.JSONDecodeError:
-                continue  # messaggio malformato ignorato
+                continue
 
             if 'type' not in data:
                 continue
@@ -151,11 +158,12 @@ async def handle_client(websocket):
             if data['type'] == 'word':
                 await lobby.word_check(player.id, data.get('word', ''), data.get('word_index', -1))
 
+            elif data['type'] == 'new-game':
+                lobby = manager.find_or_create_lobby()
+                await lobby.add_player(player)
+
             elif data['type'] == 'leave':
                 should_close = await lobby.remove_player(player.id)
-                if should_close:
-                    await manager.cleanup_lobbies()
-                break
 
     except websockets.exceptions.ConnectionClosed:
         should_close = await lobby.remove_player(player.id)

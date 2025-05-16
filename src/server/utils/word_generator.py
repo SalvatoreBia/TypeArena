@@ -14,7 +14,7 @@ class WordGenerator:
         names = self.params.get('game', 'word_list_names')
         self.tests = dict(zip(names, paths))
 
-    def get_words(self, list_name='english', how_many=100):
+    def get_words(self, list_name='english', how_many=50):
         if list_name not in self.tests:
             raise ValueError(f"The word list '{list_name}' doesn't exist.")
 
