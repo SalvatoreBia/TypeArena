@@ -1,0 +1,12 @@
+server:
+  host: 0.0.0.0
+  port: 8765
+
+game:
+  countdown: 10
+  timeout: 20
+  max_lobby_capacity: 3
+  word_list_files:
+    - resources/word_lists/english.txt
+  word_list_names:
+    - english
